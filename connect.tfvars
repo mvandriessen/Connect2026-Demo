@@ -1,0 +1,5 @@
+vcfa_url = "https://mld-auto.lab.unit-d.be"
+vra_refresh_token = "tzHFURecnfn7ssf5zFbQ10vBnajTtFJ4"
+vcfa_username = "admin"
+vcfa_password = "VMware1!VMware1!"
+project_id = "your_project_id_here"

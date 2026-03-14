@@ -1,0 +1,178 @@
+
+formatVersion: 1
+inputs:
+  target_port:
+    type: integer
+    title: Target Port
+    description: Destination port for insecure communications
+    default: 80
+  app_prefix:
+    type: string
+    title: Application Prefix
+    description: Prefix to identify application components
+  certificate_pem:
+    type: string
+    title: certificate
+    description: certificate in pem format
+  certificate_key:
+    type: string
+    title: cert key
+    description: certificate key in pem format
+resources:
+  CCI_Supervisor_Namespace_1:
+    type: CCI.Supervisor.Namespace
+    properties:
+      name: ns-lab-x4nmx
+      existing: true
+  Virtual_Machine_2:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: vmoperator.vmware.com/v1alpha3
+        kind: VirtualMachine
+        metadata:
+          name: ${input.app_prefix}-vm2
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+          labels:
+            vm-selector: ${input.app_prefix}-vm2
+            vm-lb-selector: ${input.app_prefix}-lb
+        spec:
+          className: best-effort-medium
+          # Friendly image name: ubuntu-24.04-server-cloudimg-amd64
+          imageName: vmi-a6830bf9e2597e2e4
+          storageClass: management-storage-policy-thin
+          powerState: PoweredOn
+          bootstrap:
+            cloudInit:
+              cloudConfig:
+                defaultUserEnabled: true
+                runcmd:
+                  - /usr/bin/apt update
+                  - /usr/bin/apt-get install -y apache2 php php-mysql libapache2-mod-php php-cli php-common php-intl php-gd php-mbstring php-xml php-zip php-curl php-xmlrpc unzip open-vm-tools
+                users:
+                  - name: aviuser
+                    passwd:
+                      name: ${input.app_prefix}-bootstrap-secret
+                      key: aviuser-passwd
+                    lock_passwd: false
+                    sudo: ALL=(ALL) NOPASSWD:ALL
+    wait:
+      conditions:
+        - type: VirtualMachineCreated
+          status: 'True'
+  Secret_1:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ${input.app_prefix}-bootstrap-secret
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+        stringData:
+          aviuser-passwd: $1$xITZYmhL$wz6xxzHHCnaZBJFkzfXIz0
+  Secret_2:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ${input.app_prefix}-tls-cert
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+        data:
+          tls.crt: ${input.certificate_pem}
+          tls.key: ${input.certificate_key}
+        type: kubernetes.io/tls
+  Virtual_Machine_1:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: vmoperator.vmware.com/v1alpha3
+        kind: VirtualMachine
+        metadata:
+          name: ${input.app_prefix}-vm1
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+          labels:
+            vm-selector: ${input.app_prefix}-vm2
+            vm-lb-selector: ${input.app_prefix}-lb
+        spec:
+          className: best-effort-medium
+          # Friendly image name: ubuntu-24.04-server-cloudimg-amd64
+          imageName: vmi-a6830bf9e2597e2e4
+          storageClass: management-storage-policy-thin
+          powerState: PoweredOn
+          bootstrap:
+            cloudInit:
+              cloudConfig:
+                defaultUserEnabled: true
+                runcmd:
+                  - /usr/bin/apt update
+                  - /usr/bin/apt-get install -y apache2 php php-mysql libapache2-mod-php php-cli php-common php-intl php-gd php-mbstring php-xml php-zip php-curl php-xmlrpc unzip open-vm-tools
+                users:
+                  - name: aviuser
+                    passwd:
+                      name: ${input.app_prefix}-bootstrap-secret
+                      key: aviuser-passwd
+                    lock_passwd: false
+                    sudo: ALL=(ALL) NOPASSWD:ALL
+    wait:
+      conditions:
+        - type: VirtualMachineCreated
+          status: 'True'
+  Virtual_Machine_Service_1:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: vmoperator.vmware.com/v1alpha3
+        kind: VirtualMachineService
+        metadata:
+          name: ${input.app_prefix}-lb
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+        spec:
+          selector:
+            vm-lb-selector: ${input.app_prefix}-lb
+          #type: ClusterIP
+          type: LoadBalancer
+          ports:
+            - name: http
+              protocol: TCP
+              port: 80
+              targetPort: ${input.target_port}
+        wait:
+        conditions:
+          - type: NonExistentCondition
+            status: 'True'
+            indicatesFailure: true
+  CCI_Supervisor_Resource_1:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.CCI_Supervisor_Namespace_1.id}
+      manifest:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: ${input.app_prefix}-ingress
+          namespace: ${resource.CCI_Supervisor_Namespace_1.name}
+        spec:
+          tls:
+            - hosts:
+                - ${input.app_prefix}-web.avinetworks.com
+              secretName: ${input.app_prefix}-tls-cert
+          rules:
+            - host: ${input.app_prefix}-web.avinetworks.com
+              http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: ${input.app_prefix}-lb
+                        port:
+                          number: 80
+  
